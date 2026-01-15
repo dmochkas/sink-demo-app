@@ -1,0 +1,12 @@
+[requires]
+ahoi-serial-lib/1.0.0
+schc-full-sdk/1.0.0-beta@dochkas/stable
+zlog/1.2.18@dochkas/stable
+
+[generators]
+CMakeDeps
+CMakeToolchain
+
+[options]
+ahoi-serial-lib/*:shared=True
+ahoi-serial-lib/*:secure_mode=False
