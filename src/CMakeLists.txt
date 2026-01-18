@@ -13,7 +13,7 @@ target_include_directories(${LOGGER_LIB} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/sink_demo_app"
 )
 target_compile_definitions(${LOGGER_LIB} PRIVATE LOG_CONFIG_FILE="${LOG_CONFIG_FILE}")
-target_link_libraries(${LOGGER_LIB} PRIVATE ${ZLOG_LIB})
+target_link_libraries(${LOGGER_LIB} PRIVATE ${ZLOG_LIB} ${AHOI_SERIAL_LIB})
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -23,7 +23,7 @@ target_include_directories(${CLI_LIB} PRIVATE
         "${PROJECT_SOURCE_DIR}/include"
         "${PROJECT_SOURCE_DIR}/include/sink_demo_app"
 )
-target_link_libraries(${CLI_LIB} PRIVATE ${ZLOG_LIB})
+target_link_libraries(${CLI_LIB} PRIVATE ${ZLOG_LIB} ${AHOI_SERIAL_LIB})
 
 # ---------------------------------------------------------------------------
 # L2 (AHOI)
@@ -34,6 +34,7 @@ if ("${EXT}" STREQUAL "ahoi")
             "${PROJECT_SOURCE_DIR}/include"
             "${PROJECT_SOURCE_DIR}/include/sink_demo_app"
             "${PROJECT_SOURCE_DIR}/include/sink_demo_app/l2"
+
     )
     target_compile_definitions(${AHOI_SERVICE} PUBLIC L2_AHOI_EXT)
     target_link_libraries(${AHOI_SERVICE} PRIVATE ${AHOI_SERIAL_LIB} ${ZLOG_LIB})
@@ -51,7 +52,7 @@ target_include_directories(${SCHC_SERVICE} PRIVATE
         "${PROJECT_SOURCE_DIR}/include/sink_demo_app/services"
         "${PROJECT_SOURCE_DIR}/include/sink_demo_app/l2"
 )
-target_link_libraries(${SCHC_SERVICE} PRIVATE ${SCHC_FULL_SDK_LIB} ${ZLOG_LIB})
+target_link_libraries(${SCHC_SERVICE} PRIVATE ${SCHC_FULL_SDK_LIB} ${ZLOG_LIB} ${AHOI_SERIAL_LIB})
 
 # ---------------------------------------------------------------------------
 # Executable

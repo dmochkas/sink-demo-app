@@ -3,8 +3,7 @@ build/
 
 #Logs
 *.log
-rx.log
-errors.log
+
 
 #IDE / local config
 .idea/
