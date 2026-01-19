@@ -12,6 +12,7 @@
 
 #define NB_RULES 1
 #define IPV6_UDP_RULE_ID 28
+#define NO_COMPRESSION_RULE 150
 
 static uint8_t sensor_ip[16] = {
     0x20,0x01,0x0d,0xb8, 0x00,0x00,0x00,0x01,
@@ -103,8 +104,6 @@ rules_t *tpl_get_template_rules(void)
     add_rule_field(&ipv6udp_rule,&f10);add_rule_field(&ipv6udp_rule,&f11);
     add_rule_field(&ipv6udp_rule,&f12);add_rule_field(&ipv6udp_rule,&f13);
 
-
-
     /* ===================== RULE SET ===================== */
     static rules_t rules;
     static rule_t *rule_array[NB_RULES];
@@ -134,6 +133,12 @@ schc_status_t schc_service_decompress(const uint8_t *in, size_t in_len,
     }
 
     uint16_t decomp_size = 0;
+
+    if (in[0] == NO_COMPRESSION_RULE) {
+        memcpy(out, in + 1, in_len - 1);
+        *out_len = in_len - 1;
+        return SCHC_OK;
+    }
 
     comp_callbacks_t cb = {0};
     cb.ext_compress   = mocked_ext_compress;
