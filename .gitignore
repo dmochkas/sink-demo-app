@@ -1,0 +1,10 @@
+#Build artifacts
+build/
+
+#Logs
+*.log
+
+
+#IDE / local config
+.idea/
+CMakeUserPresets.json
