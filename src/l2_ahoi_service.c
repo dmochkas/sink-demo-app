@@ -23,6 +23,7 @@ l2_init_status l2_init(void) {
 
     tcflush(g_ahoi_fd, TCIFLUSH);
     set_ahoi_id(g_ahoi_fd, modem_id);
+    set_ahoi_sniff_mode(g_ahoi_fd,true);
     return L2_INIT_OK;
 }
 
