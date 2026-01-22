@@ -1,12 +1,11 @@
 #include "sink_demo_app/l2/l2.h"
 
 #include <string.h>
-#include <stdbool.h>
 #include <termios.h>
 
 #include <ahoilib.h>
 
-#include "sink_demo_app//logger_helper.h"
+#include "sink_demo_app/logger_helper.h"
 
 static int g_ahoi_fd = -1;
 static const char* port = NULL;
@@ -24,7 +23,6 @@ l2_init_status l2_init(void) {
 
     tcflush(g_ahoi_fd, TCIFLUSH);
     set_ahoi_id(g_ahoi_fd, modem_id);
-    // set_ahoi_sniff_mode(g_ahoi_fd, false);
     return L2_INIT_OK;
 }
 
@@ -70,9 +68,7 @@ l2_recv_status l2_recv_run(uint8_t* payload, const size_t cap, size_t* out_len) 
         return L2_RECV_KO;
     }
 
-    // Log everything received (header-level)
-    zlog_info(rx_cat, "AHOI RX: src=%u dst=%u type=%u flags=%u seq=%u pl_size=%u",
-              p.src, p.dst, p.type, p.flags, p.seq, p.pl_size);
+    log_ahoi_packet(rx_cat, &p);
 
     if (!p.payload || p.pl_size == 0) {
         zlog_warn(rx_cat, "AHOI RX empty payload");

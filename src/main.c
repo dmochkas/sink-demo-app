@@ -1,58 +1,57 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-
-#include <ahoi_serial/ahoi_defs.h>
-#include <ahoilib.h>
-
 
 #include "sink_demo_app/logger_helper.h"
 #include "sink_demo_app/cli_helper.h"
 #include "sink_demo_app/services/schc_service.h"
-#include "sink_demo_app/services/sensor_service.h"
+#include "sink_demo_app/l2/l2.h"
 
-#ifndef RX_TIMEOUT_MS
-#define RX_TIMEOUT_MS 1500
-#endif
+#define RX_BUF_CAP 1024
+#define SCHC_BUF_CAP 512
+#define NORM_BUF_CAP 256
 
-
-
-static void handle_schc_and_log(const uint8_t* schc_in, size_t schc_in_len)
+static void handle_one_schc_frame(const uint8_t *schc_in, size_t schc_in_len)
 {
     if (!schc_in || schc_in_len == 0) {
-        zlog_warn(rx_cat, "Empty SCHC input");
+        zlog_error(error_cat, "Empty SCHC input");
         return;
     }
 
+    /* rx_cat: what we received */
     hex_dump(rx_cat, "SCHC IN", schc_in, schc_in_len);
 
-    uint8_t out[512];
-    size_t out_len = 0;
+    uint8_t decomp[RX_BUF_CAP];
+    size_t decomp_len = 0;
 
-    const schc_status_t ds = schc_service_decompress(
+    const schc_status_t st = schc_service_decompress(
         schc_in, schc_in_len,
-        out, sizeof(out),
-        &out_len
+        decomp, sizeof(decomp),
+        &decomp_len
     );
 
-    if (ds != SCHC_OK) {
-        zlog_error(error_cat, "SCHC decompress failed (status=%d)", (int)ds);
+    if (st != SCHC_OK) {
+        zlog_error(error_cat, "SCHC decompress failed (status=%d)", (int)st);
         return;
     }
 
-    hex_dump(rx_cat, "SCHC OUT", out, out_len);
-    zlog_info(rx_cat, "SCHC decompressed: %zu bytes", out_len);
+    /* Always produce normalized wire packet */
+    uint8_t norm[NORM_BUF_CAP];
+    size_t norm_len = 0;
 
-    if (out_len != sizeof(sensor_data_t)) {
-        zlog_warn(error_cat, "Unexpected decompressed size: %zu (expected %zu)",
-                  out_len, sizeof(sensor_data_t));
+    if (normalize_ipv6_udp_coap_packet(decomp, decomp_len, norm, sizeof(norm), &norm_len) != 0) {
+        zlog_error(error_cat, "Normalization failed (decomp_len=%zu)", decomp_len);
         return;
     }
 
-    sensor_data_t d;
-    memcpy(&d, out, sizeof(d));
-    log_sensor(rx_cat, &d);
+    /* rx_cat: normalized wire bytes */
+    hex_dump(rx_cat, "DECOMPRESSED OUT (IPv6/UDP/CoAP)", norm, norm_len);
+
+    /* rx_cat: parsed content (IPv6/UDP/CoAP + sensor) */
+    if (log_parsed_ipv6_udp_coap(norm, norm_len) != 0) {
+        zlog_error(error_cat, "Failed to parse normalized IPv6/UDP/CoAP");
+        return;
+    }
 }
 
 int main(int argc, char *argv[])
@@ -61,8 +60,6 @@ int main(int argc, char *argv[])
         fprintf(stderr, "Logger initialization failed\n");
         return EXIT_FAILURE;
     }
-
-    zlog_info(ok_cat, "Logger initialized");
 
     uint8_t id_arg = 0x00;
     uint8_t key_arg[KEY_SIZE];
@@ -81,71 +78,58 @@ int main(int argc, char *argv[])
         return EXIT_FAILURE;
     }
 
-    zlog_info(ok_cat, "Cli arg parse OK");
+    /* Replay is not allowed in final code */
+    if (replay_hex != NULL) {
+        zlog_error(error_cat, "--replay-hex is not supported in final build");
+        zlog_fini();
+        return EXIT_FAILURE;
+    }
+
     zlog_info(ok_cat, "Receiver starting (id=%u)", (unsigned)id_arg);
+
+    l2_set_id((uint32_t)id_arg);
+
+#ifdef L2_AHOI_EXT
+    l2_ahoi_set_port(port);
+    l2_ahoi_set_baudrate(baudrate);
+#endif
+
+    if (l2_init() != L2_INIT_OK) {
+        zlog_error(error_cat, "Layer 2 init failed");
+        zlog_fini();
+        return EXIT_FAILURE;
+    }
+    zlog_info(ok_cat, "Layer 2 initialized");
 
     if (schc_service_init() != SCHC_OK) {
         zlog_error(error_cat, "SCHC init failed");
         zlog_fini();
         return EXIT_FAILURE;
     }
-    zlog_info(ok_cat, "SCHC service init OK");
+    zlog_info(ok_cat, "SCHC service initialized");
 
+    zlog_info(ok_cat, "Waiting for packets...");
 
-
-    /* Normal mode: need a real modem */
-    if (port == NULL || baudrate == 0) {
-        zlog_error(error_cat, "Missing -p/--port or -b/--baud (or use --replay-hex)");
-        zlog_fini();
-        return EXIT_FAILURE;
-    }
-
-    int fd = open_serial_port((const uint8_t*)port, baudrate);
-    if (fd < 0) {
-        zlog_error(error_cat, "Error opening serial port");
-        zlog_fini();
-        return EXIT_FAILURE;
-    }
-
-    set_ahoi_id(fd, id_arg);
-
-    zlog_info(ok_cat, "Layer 2 init OK (port=%s baud=115200 id=%u)", port, (unsigned)id_arg);
-    zlog_info(ok_cat, "Looping receive_ahoi_packet_sync(); logging to rx.log");
+    uint8_t schc_in[SCHC_BUF_CAP];
+    size_t schc_in_len = 0;
 
     for (;;) {
-        ahoi_packet_t pkt;
-        ahoi_footer_t footer;
+        schc_in_len = 0;
 
-        memset(&pkt, 0, sizeof(pkt));
-        memset(&footer, 0, sizeof(footer));
+        const l2_recv_status r = l2_recv_run(schc_in, sizeof(schc_in), &schc_in_len);
 
-        const packet_rcv_status st = receive_ahoi_packet_sync(fd, &pkt, &footer, RX_TIMEOUT_MS);
-
-        if (st == PACKET_RCV_TIMEOUT) {
-            zlog_debug(ok_cat, "RX timeout");
-            continue;
-        }
-        if (st != PACKET_RCV_OK) {
-            zlog_warn(error_cat, "RX failed (status=%d)", (int)st);
+        if (r == L2_RECV_TIMEOUT) {
+            /* Print every timeout (will be noisy). */
+            zlog_debug(ok_cat, "RX timeout (no packet)");
             continue;
         }
 
-        log_ahoi_packet(rx_cat, &pkt);
-
-        if (pkt.payload == NULL || pkt.pl_size == 0) {
-            zlog_warn(error_cat, "RX packet has empty payload");
+        if (r != L2_RECV_OK) {
+            zlog_error(error_cat, "L2 receive failed");
             continue;
         }
 
-        const size_t schc_in_len = (size_t)pkt.pl_size;
-        if (schc_in_len > 512) {
-            zlog_warn(error_cat, "SCHC payload too large: %zu", schc_in_len);
-            continue;
-        }
-
-        uint8_t schc_in[512];
-        memcpy(schc_in, pkt.payload, schc_in_len);
-
-        handle_schc_and_log(schc_in, schc_in_len);
+        /* schc_in is the SCHC frame payload */
+        handle_one_schc_frame(schc_in, schc_in_len);
     }
 }
